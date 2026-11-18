@@ -8,15 +8,28 @@ A Python web scraper that collects product data from [warn.com](https://www.warn
 
 For every SKU in the input Excel file, the scraper:
 
-1. Finds the product on warn.com (sitemap → search page → predictive search)
-2. Verifies product identity via JSON-LD metadata and SKU elements before scraping
+1. Finds the product on warn.com using a 3-step lookup:
+   - Sitemap (`sitemap.xml`) — exact MPN token match in the product URL handle
+   - Search page — waits for a result whose URL contains the exact MPN
+   - Predictive search (`/search/suggest.json`) — exact MPN token match only
+   - If none match exactly, the SKU is logged as **Not Found** — no unrelated result is ever substituted
+2. Verifies product identity before scraping via a two-stage check:
+   - Checks JSON-LD `Product` metadata (`sku`, `mpn`, `productID`) on the page
+   - Also accepts WARN's observed `W36` + MPN SKU pattern (e.g. `W3698055` for MPN `98055`), but only when the product URL independently confirms the MPN
+   - If verification fails, the SKU is flagged for manual review — no data is scraped
 3. Scrapes product details into **Sheet: Warn Products**
    - Product Title, Summary, Description, HTML Description, Additional Description, Universal flag, Identity Verification, and all Specs (A–Z)
 4. Scrapes the Vehicle Compatibility List into **Sheet: Warn Fitment**
+   - Year, Make, Model, Submodel columns, and Notes
+   - Multi-range year cells (e.g. `1974-2023, 2026-2027`) are split into separate rows
 5. Scrapes Product Literature links into **Sheet: Product Literature URLs**
-   - Installation Guides, Winching Manuals, Warranty Info, Replacement Parts
-6. Logs SKUs not found or unverified into **Sheet: Items Not Found**
+   - Only links from the product's own page (not the "See All" page)
+   - Categorised into: Installation Guides and Operational Manuals, Winching Manuals, Warranty Information, Replacement Parts
+   - "International" documents are skipped (English only)
+6. Logs all problem SKUs into **Sheet: Items Not Found** with columns:
+   - Inventory Number, MPN, Description, Reason, Details, Product URL Checked
 7. Saves everything to `Warn_Product_Data_<date>.xlsx` on the Desktop
+   - Output is formatted: bold grey headers, auto-filter, frozen rows, auto-width columns
 
 Progress is auto-saved every 5 SKUs to prevent data loss on crashes.
 
@@ -73,21 +86,21 @@ Key settings at the top of the script:
 |---|---|---|
 | `INPUT_FILE` | `Warn_Scrape_List_2026-11-16.xlsx` | Path to your SKU list |
 | `SAVE_EVERY` | `5` | Auto-save interval (every N SKUs) |
-| `SKIP_SEARCH_IF_NOT_IN_SITEMAP` | `False` | Skip search page if SKU not in sitemap |
-| `ADD_USA_LINE` | `True` | Include "Made in USA" line in HTML description |
-| `ADD_PROP65_FOOTER` | `True` | Include Prop 65 warning in HTML description |
-| `SPEC_PAIRS_PER_ROW` | `3` | Spec columns per row in the HTML table (6 total) |
+| `SKIP_SEARCH_IF_NOT_IN_SITEMAP` | `False` | If `True`, skip the search page when a SKU is not found in the sitemap (faster for large missing lists) |
+| `ADD_USA_LINE` | `True` | Include "Designed, Engineered, and Assembled in the USA" line in HTML description |
+| `ADD_PROP65_FOOTER` | `True` | Include California Prop 65 warning at the end of HTML description |
+| `SPEC_PAIRS_PER_ROW` | `3` | Spec name/value pairs per row in the HTML table (3 pairs = 6 columns) |
 
 ---
 
 ## Output Sheets
 
-| Sheet | Contents |
+| Sheet | Columns |
 |---|---|
-| Warn Products | Title, Summary, Description, HTML, Specs, Identity Verification |
-| Warn Fitment | Year, Make, Model, Submodel per SKU |
-| Product Literature URLs | PDF links by category |
-| Items Not Found | SKUs not found, unverified, or errored |
+| Warn Products | Inventory Number, MPN, Product Title, Product Summary, Description, Product-Description (HTML), Additional Description, Universal, Identity Verification, Specs (A–Z) |
+| Warn Fitment | Part, Year, Make, Model, Submodel1 (Custom), Submodel2 (Custom), Submodel3 (Custom), Notes |
+| Product Literature URLs | Part, Installation Guides and Operational Manuals, Winching Manuals, Warranty Information, Replacement Parts |
+| Items Not Found | Inventory Number, MPN, Description, Reason, Details, Product URL Checked |
 
 ---
 
@@ -95,5 +108,6 @@ Key settings at the top of the script:
 
 - Logs are written to `warn_scraper.log` in the project folder
 - Uses [SeleniumBase](https://github.com/seleniumbase/SeleniumBase) with undetected-chromedriver mode (`uc=True`) to handle bot protection
-- "International" literature documents are skipped (English only)
-- Product identity is verified via JSON-LD metadata before scraping — unverified products are flagged in "Items Not Found" rather than scraped with potentially wrong data
+- The `Universal` field is `No` if a Vehicle Compatibility List exists, `Yes` if not
+- The Year column in Warn Fitment is formatted as text to prevent Excel from converting year ranges to dates
+- A debug HTML file (`prod_lit_debug_<mpn>.html`) is saved locally if any literature links fall under an unrecognised header
